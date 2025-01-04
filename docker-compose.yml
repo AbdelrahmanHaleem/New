@@ -1,0 +1,80 @@
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: translation_db
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  user-service:
+    build: ./user-service
+    ports:
+      - "8003:8003"
+    depends_on:
+      - db
+
+  en2ar-service:
+    build: ./en2ar-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      - kafka
+      - db
+
+  ar2en-service:
+    build: ./ar2en-service
+    ports:
+      - "5000:5000"
+    depends_on:
+      - kafka
+      - db
+
+  summarization-service:
+    build: ./summarization-service
+    ports:
+      - "8002:8002"
+    depends_on:
+      - kafka
+      - db
+
+  api-gateway:
+    image: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - en2ar-service
+      - ar2en-service
+      - summarization-service
+      - user-service
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
